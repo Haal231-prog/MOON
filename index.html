@@ -1,56 +1,168 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>Private Chat</title>
-  <style>
-    body { font-family: Arial; background:#111; color:#fff; text-align:center; }
-    input, button { padding:10px; margin:5px; }
-    #messages { height:300px; overflow-y:auto; border:1px solid #555; margin:10px; }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Private 2-User Chat</title>
+<style>
+body, html {margin:0;padding:0;height:100%;font-family:Arial,sans-serif;font-size:16px;background:#e5ddd5;}
+#login, #chat{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;}
+#login input, #login button{padding:10px;margin:5px;font-size:16px;width:80%;max-width:300px;border-radius:5px;border:1px solid #ccc;}
+#chat{display:none;height:100%;width:100%;flex-direction:column;}
+#messages{flex:1;overflow-y:auto;width:95%;max-width:600px;margin:10px auto;padding:10px;background:#f0f0f0;border-radius:10px;display:flex;flex-direction:column;}
+.message{display:flex;margin:5px;max-width:80%;align-items:flex-end;}
+.bubble{padding:10px;border-radius:20px;word-wrap:break-word;font-size:16px;position:relative;line-height:1.4;}
+.sender{justify-content:flex-end;align-self:flex-end;}
+.sender .bubble{background:#dcf8c6;margin-left:5px;border-top-right-radius:0;}
+.receiver{justify-content:flex-start;align-self:flex-start;}
+.receiver .bubble{background:#ffb6c1;margin-right:5px;border-top-left-radius:0;}
+.avatar{width:35px;height:35px;border-radius:50%;margin:0 5px;}
+.name{font-weight:bold;margin-bottom:3px;font-size:14px;}
+#chat-controls{display:flex;justify-content:center;width:95%;max-width:600px;margin-bottom:10px;}
+#msg{flex:1;padding:10px;font-size:16px;border-radius:20px;border:1px solid #ccc;}
+#recordBtn, #sendBtn{padding:10px;font-size:16px;margin-left:5px;border-radius:20px;}
+audio{display:block;margin-top:5px;max-width:100%;border-radius:10px;}
+</style>
 </head>
 <body>
 
+<!-- LOGIN -->
 <div id="login">
-  <h2>Private Login</h2>
-  <input id="user" placeholder="User ID">
-  <input id="pass" placeholder="Password" type="password">
-  <button onclick="login()">Login</button>
+<h2>Private Login</h2>
+<input id="user" placeholder="User ID">
+<input id="pass" placeholder="Password" type="password">
+<input id="name" placeholder="Your Name (Optional)">
+<button onclick="login()">Login</button>
 </div>
 
-<div id="chat" style="display:none;">
-  <h3>Private Chat</h3>
-  <div id="messages"></div>
-  <input id="msg" placeholder="Type message">
-  <input type="file" id="img">
-  <button onclick="send()">Send</button>
-  <button onclick="startCall()">📞 Voice Call</button>
+<!-- CHAT -->
+<div id="chat">
+<div id="messages"></div>
+<div id="chat-controls">
+<input type="text" id="msg" placeholder="Type a message" onkeydown="if(event.key==='Enter'){sendMessage()}">
+<button id="sendBtn" onclick="sendMessage()">Send</button>
+<button id="recordBtn">🎤 Record</button>
 </div>
+</div>
+
+<!-- Firebase SDKs -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 
 <script>
-const USER = "Excel@123";
-const PASS = "Microsoft@123";
+// ===== YOUR FIREBASE CONFIG (UNCHANGED) =====
+const firebaseConfig = {
+  apiKey: "AIzaSyB44cXr29RuwC95yI87FGn1lZnPVKMozRU",
+  authDomain: "pvtapp-4d511.firebaseapp.com",
+  projectId: "pvtapp-4d511",
+  storageBucket: "pvtapp-4d511.firebasestorage.app",
+  messagingSenderId: "487734288517",
+  appId: "1:487734288517:web:a54583ab19b2dcda5509ec",
+  measurementId: "G-RBF3N8ELYE"
+};
+// ======================================================
 
-function login() {
-  const u = document.getElementById("user").value;
-  const p = document.getElementById("pass").value;
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
 
-  if(u === USER && p === PASS){
-    document.getElementById("login").style.display = "none";
-    document.getElementById("chat").style.display = "block";
+// ===== LOGIN =====
+const USER="Excel@123";
+const PASS="Microsoft@123";
+let currentUser="", currentName="";
+let mediaRecorder, audioChunks=[];
+function login(){
+  const u=document.getElementById("user").value;
+  const p=document.getElementById("pass").value;
+  const n=document.getElementById("name").value || "Me";
+  if(u===USER && p===PASS){
+    currentUser=u;
+    currentName=n;
+    document.getElementById("login").style.display="none";
+    document.getElementById("chat").style.display="flex";
+    listenMessages();
   } else {
-    alert("Access denied: wrong User ID or Password");
+    alert("Access Denied: wrong User ID or Password");
   }
 }
 
-function send() {
-  const msg = document.getElementById("msg").value;
-  const div = document.createElement("div");
-  div.textContent = msg;
-  document.getElementById("messages").appendChild(div);
-  document.getElementById("msg").value = "";
+// ===== ADD MESSAGE WITH AVATAR =====
+function addMessage(name, content, type, isAudio=false){
+  const messages=document.getElementById("messages");
+  const div=document.createElement("div");
+  div.className="message "+type;
+
+  // Avatar
+  const avatar=document.createElement("img");
+  avatar.className="avatar";
+  avatar.src=(type==="sender") 
+    ?"https://upload.wikimedia.org/wikipedia/commons/9/9e/Moon_symbol.svg"
+    :"https://upload.wikimedia.org/wikipedia/commons/4/4f/Star_symbol.svg";
+
+  // Bubble
+  const bubble=document.createElement("div");
+  bubble.className="bubble";
+  if(isAudio){
+    const audio=document.createElement("audio");
+    audio.src=content;
+    audio.controls=true;
+    bubble.appendChild(audio);
+  } else {
+    bubble.innerHTML=`<div class="name">${name}</div>${content}`;
+  }
+
+  if(type==="sender"){
+    div.appendChild(bubble);
+    div.appendChild(avatar);
+  } else {
+    div.appendChild(avatar);
+    div.appendChild(bubble);
+  }
+
+  messages.appendChild(div);
+  messages.scrollTop = messages.scrollHeight;
+  if(type==="receiver") new Audio('https://www.soundjay.com/buttons/sounds/button-3.mp3').play();
 }
 
-function startCall() {
-  alert("Voice call works with browser WebRTC – both users must open this page");
+// ===== SEND TEXT =====
+function sendMessage(){
+  const msg=document.getElementById("msg").value.trim();
+  if(msg==="") return;
+  db.ref("messages").push({user:currentUser,name:currentName,type:"text",content:msg,timestamp:Date.now()});
+  document.getElementById("msg").value="";
+}
+
+// ===== VOICE RECORDING =====
+const recordBtn=document.getElementById("recordBtn");
+recordBtn.onclick=async ()=>{
+  if(recordBtn.textContent==="🎤 Record"){
+    const stream=await navigator.mediaDevices.getUserMedia({audio:true});
+    mediaRecorder=new MediaRecorder(stream);
+    audioChunks=[];
+    mediaRecorder.ondataavailable=e=>audioChunks.push(e.data);
+    mediaRecorder.onstop=()=>{
+      const blob=new Blob(audioChunks,{type:"audio/webm"});
+      const reader=new FileReader();
+      reader.onload=()=>{
+        db.ref("messages").push({user:currentUser,name:currentName,type:"audio",content:reader.result,timestamp:Date.now()});
+      };
+      reader.readAsDataURL(blob);
+    };
+    mediaRecorder.start();
+    recordBtn.textContent="⏹ Stop";
+  }else{
+    mediaRecorder.stop();
+    recordBtn.textContent="🎤 Record";
+  }
+}
+
+// ===== REAL-TIME LISTENER =====
+function listenMessages(){
+  db.ref("messages").on("child_added",snapshot=>{
+    const msg=snapshot.val();
+    const type=(msg.user===currentUser)?"sender":"receiver";
+    addMessage(msg.name,msg.content,type,msg.type==="audio");
+  });
 }
 </script>
+</body>
+</html>
