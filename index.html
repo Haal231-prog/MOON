@@ -31,15 +31,24 @@ body, html {margin:0;padding:0;height:100%;font-family:Arial,sans-serif;font-siz
   height:100%;
   width:100%;
   flex-direction:column;
-  background: url('https://i.ibb.co/F0G8Lkp/starscape.jpg') no-repeat center center fixed;
-  background-size: cover;
+  background: #007BFF; /* Solid blue wallpaper */
+}
+#userList{
+  background:#ffffffaa;
+  padding:5px 10px;
+  border-radius:5px;
+  margin:10px auto 5px auto;
+  width:95%;
+  max-width:600px;
+  text-align:center;
+  font-weight:bold;
 }
 #messages{
   flex:1;
   overflow-y:auto;
   width:95%;
   max-width:600px;
-  margin:10px auto;
+  margin:0 auto 10px auto;
   padding:10px;
   background:rgba(240,240,240,0.8);
   border-radius:10px;
@@ -88,6 +97,7 @@ audio{display:block;margin-top:5px;max-width:100%;border-radius:10px;}
 
 <!-- CHAT -->
 <div id="chat">
+<div id="userList">Active Users: </div>
 <div id="messages"></div>
 <div id="chat-controls">
 <input type="text" id="msg" placeholder="Type a message" onkeydown="if(event.key==='Enter'){sendMessage()}">
@@ -187,6 +197,8 @@ function addMessage(name, content, type, isAudio=false){
   if(type==="receiver" && Notification.permission==="granted"){
     new Notification(`New message from ${name}`,{body: content});
   }
+
+  updateUserList();
 }
 
 // ===== SEND TEXT =====
@@ -228,6 +240,18 @@ function listenMessages(){
     const msg=snapshot.val();
     const type=(msg.user===currentUser)?"sender":"receiver";
     addMessage(msg.name,msg.content,type,msg.type==="audio");
+  });
+}
+
+// ===== UPDATE ACTIVE USER LIST =====
+function updateUserList(){
+  const userListDiv=document.getElementById("userList");
+  db.ref("messages").once("value", snapshot => {
+    const users = new Set();
+    snapshot.forEach(msgSnap => {
+      users.add(msgSnap.val().name);
+    });
+    userListDiv.innerHTML = "Active Users: " + Array.from(users).join(", ");
   });
 }
 
